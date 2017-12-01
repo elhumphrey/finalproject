@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    History
+{% endblock %}
+
+{% block main %}
+    <form action="/history" method="post">
+        <div class="form-group">
+            <table class="table table-striped">
+            <tr>
+                <th>Symbol</th>
+                <th>Shares</th>
+                <th>Price</th>
+                <th>Transacted</th>
+            </tr>
+            {% for history in histories %}
+            <tr>
+                <td>{{history.symbol}}</td>
+                <td>{{history.shares}}</td>
+                <td>{{history.price}}</td>
+                <td>{{history.transacted}}</td>
+            </tr>
+            {%endfor%}
+        </div>
+    </form>
+{% endblock %}
