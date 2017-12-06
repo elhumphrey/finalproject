@@ -45,3 +45,11 @@ main img
     /* constrain images on small screens */
     max-width: 100%;
 }
+
+ul.navigation {
+  list-style: none;
+  padding: 0;
+}
+ul.navigation li {
+  display: inline;
+}

@@ -20,6 +20,7 @@ if app.config["DEBUG"]:
         response.headers["Pragma"] = "no-cache"
         return response
 
+TYPES = ["acorn", "fruits", "twigs", "unknown", "ash", "beech", "birch", "cherry", "chestnut", "hemlock", "oak", "nontreelitter", "pinecones", "rmaple", "rpine", "spruce", "strmaple", "whazel", "wpine"]
 # Custom filter
 app.jinja_env.filters["usd"] = usd
 
@@ -30,90 +31,50 @@ app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
 # Configure CS50 Library to use SQLite database
-db = SQL("sqlite:///finance.db")
+db = SQL("postgres://beghxsknocirxj:34b23dfb10088c8d70f54d035a53e117145122bbbd8b3b80bff3f4929e546434@ec2-184-73-206-155.compute-1.amazonaws.com:5432/d5d2lm53n3gnm5")
 
-
-@app.route("/")
+@app.route("/timesheet")
 @login_required
-def index():
-    # get all data from table
-    stocks = db.execute("SELECT symbol, shares FROM history WHERE id = :id", id=session['user_id'])
-    actualtotal = 0
-    for stock in stocks:
-        symbol = stock["symbol"]
-        shares = stock["shares"]
-        info = lookup(symbol)
-        total = shares * info["price"]
-        actualtotal += total
-        # update table data for correct index format
-        db.execute("UPDATE history SET price=:price, total=:total WHERE id=:id AND symbol=:symbol",
-                   price=usd(info["price"]), total=usd(total), id=session["user_id"], symbol=symbol)
-    # get users cash to calculate current monetary totals
-    cash = db.execute("SELECT cash FROM users WHERE id = :id", id=session['user_id'])
-    actualtotal += cash[0]["cash"]
-    # pass table data to html file
-    history = db.execute("SELECT * FROM history WHERE id=:id", id=session["user_id"])
-    return render_template("index.html", stocks=history, cash=usd(cash[0]["cash"]), actual_total=usd(actualtotal))
+def home():
+    final = db.execute("SELECT * FROM timesheet")
+    return render_template("timesheet.html", works=final)
 
-
-@app.route("/buy", methods=["GET", "POST"])
+@app.route("/reference")
 @login_required
-def buy():
-    """Buy shares of stock"""
+def reference():
+    return render_template("reference.html")
+
+@app.route("/checkin", methods=["GET", "POST"])
+@login_required
+def checkin():
+    """check in to work"""
     now = datetime.now()
     if request.method == "GET":
-        return render_template("buy.html")
+        return render_template("checkin.html")
     if request.method == "POST":
         # check for valid input
-        try:
-            symbol = request.form.get("symbol")
-            shares = int(request.form.get("shares"))
-        except:
-            return apology("please enter values", 400)
+        checkin = request.form.get("date_time_button")
+    db.execute("INSERT INTO timesheet (userid, timein, timeout, date) VALUES (:id, :timein, :timeout, :date)",
+    id=session["user_id"], timein = now.strftime("%H:%M:%S"), timeout = 0, date=now.strftime("%Y %m %d"))
+    return redirect("/record")
 
-        if not symbol:
-            return apology("must provide symbol of share desired", 403)
-
-        if not shares or shares <= 0:
-            return apology("must provide number of shares", 400)
-
-        quote = lookup(request.form.get("symbol"))
-        if not quote:
-            return apology("not a valid stock symbol :(")
-
-        cash = (db.execute("SELECT cash FROM users WHERE id = :id", id=session["user_id"]))
-
-        # make sure user has enough money to make desired purchase
-        if not cash[0]["cash"]:
-            return apology("not enough", 403)
-        elif cash[0]["cash"] <= quote['price'] * shares:
-            return apology("not enough money", 403)
-        # if they do have enough money, update database
-        else:
-            db.execute("UPDATE users SET cash = cash - :spent where id = :id",
-                       spent=quote["price"] * shares, id=session['user_id'])
-            db.execute("INSERT INTO history ('id', 'symbol', 'shares', 'price', 'transacted', 'total') VALUES (:id, :symbol, :number, :price, :transacted, :total)",
-                       id=session["user_id"], symbol=request.form.get('symbol'), number=request.form.get('shares'), price=quote['price'], transacted=now.strftime("%Y %m %d %H:%M:%S"), total=int(quote["price"]) * shares)
-
-            return redirect("/")
-
-
-@app.route("/history")
+@app.route("/checkout", methods=["GET", "POST"])
 @login_required
-def history():
-    # get database values to use in html jinja
-    histories = db.execute("SELECT * FROM history where id= :id", id=session['user_id'])
-    for history in histories:
-        quote = lookup(history["symbol"])
-        symbol = history["symbol"]
-        shares = history["shares"]
-        price = quote["price"]
-        transacted = history["transacted"]
-    # pass database info into html file
-    return render_template("history.html", histories=histories)
+def checkout():
+    """checkout of work"""
+    now = datetime.now()
+    if request.method == "GET":
+        return render_template("checkout.html")
+    if request.method == "POST":
+        # check for valid input
+        checkout = request.form.get("date_time_button")
+        db.execute("UPDATE timesheet SET timeout = :checkout WHERE userid = :id AND date=:date",
+                       checkout = now.strftime("%H:%M:%S"), id=session["user_id"], date=now.strftime("%Y %m %d"))
+    return redirect("/timesheet")
 
 
-@app.route("/login", methods=["GET", "POST"])
+
+@app.route("/", methods=["GET", "POST"])
 def login():
     """Log user in"""
 
@@ -124,26 +85,29 @@ def login():
     if request.method == "POST":
 
         # Ensure username was submitted
-        if not request.form.get("username"):
-            return apology("must provide username", 403)
+        if not request.form.get("name"):
+            return apology("must provide name", 403)
 
         # Ensure password was submitted
         elif not request.form.get("password"):
             return apology("must provide password", 403)
 
         # Query database for username
-        rows = db.execute("SELECT * FROM users WHERE username = :username",
-                          username=request.form.get("username"))
+        rows = db.execute("SELECT * FROM users WHERE name = :name",
+                          name=request.form.get("name"))
 
+        password = db.execute("SELECT password FROM users WHERE name = :name", name=request.form.get("name"))
+        print (request.form.get("password"))
+        print (password)
         # Ensure username exists and password is correct
-        if len(rows) != 1 or not check_password_hash(rows[0]["hash"], request.form.get("password")):
+        if len(rows) != 1 or password[0]['password'] != request.form.get("password"):
             return apology("invalid username and/or password", 403)
 
         # Remember which user has logged in
-        session["user_id"] = rows[0]["id"]
+        session["user_id"] = rows[0]["userid"]
 
         # Redirect user to home page
-        return redirect("/")
+        return redirect("/checkin")
 
     # User reached route via GET (as by clicking a link or via redirect)
     else:
@@ -161,100 +125,179 @@ def logout():
     return redirect("/")
 
 
-@app.route("/quote", methods=["GET", "POST"])
+@app.route("/A1", methods=["GET", "POST"])
 @login_required
-def quote():
-    if request.method == "POST":
-        # check for valid input, get info about that stock
-        quote = lookup(request.form.get("symbol"))
-        if not quote:
-            return apology("not a valid stock symbol :(")
-        # if valid, send to display quote page and show quote info
-        return render_template("displayquote.html", name=quote["name"], price=quote["price"])
-    # if not valid, send back to quote page
-    else:
-        return render_template("quote.html")
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
+def A1():
 
     if request.method == "POST":
-        password = request.form.get("password")
+        if request.form['action'] == 'Submit':
+            params = {}
+            for type in TYPES:
+                try:
+                    params[type+"envelope"] = float(request.form.get(type+"envelope"))
+                except:
+                    params[type+"envelope"]=0
+                try:
+                    params[type+"weight"] = float(request.form.get(type+"weight"))
+                except:
+                    params[type+"weight"]=0
 
-        # Ensure username was submitted
-        if not request.form.get("username"):
-            return apology("must provide username", 400)
+            params["userid"] = session["user_id"]
 
-        # Ensure password was submitted
-        elif not request.form.get("password"):
-            return apology("must provide password", 400)
-
-        elif not request.form.get("confirmation"):
-            return apology("must provide password twice", 400)
-
-        # personal touch! Make sure password contains at least one number
-        elif not any(i.isdigit() for i in password):
-            return apology("password must contain at least one number!", 400)
-
-        # if registration is valid, add user to database
-        if request.form.get("password") == request.form.get("confirmation"):
-            result = db.execute("INSERT INTO users (username, hash) VALUES(:username, :hash)",
-                                username=request.form.get("username"), hash=generate_password_hash(request.form.get("password")))
-            if not result:
-                return apology("Sorry, username is already taken")
-        else:
-            return apology("Sorry, passwords must match", 400)
-
-        # create unique session id by which to identify this user as they move through the site
-        session["user_id"] = result
-        return redirect("/")
+            db.execute("INSERT INTO a1 (type, envelope,weight, userid) VALUES ('acorn', :acornenvelope, :acornweight, :userid), ('fruits', :fruitsenvelope, :fruitsweight, :userid), ('twigs', :twigsenvelope, :twigsweight, :userid), ('unknown', :unknownenvelope, :unknownweight, :userid), ('ash', :ashenvelope, :ashweight, :userid), ('beech', :beechenvelope, :beechweight, :userid), ('birch', :birchenvelope, :birchweight, :userid), ('cherry', :cherryenvelope, :cherryweight, :userid), ('chestnut', :chestnutenvelope, :chestnutweight, :userid), ('hemlock', :hemlockenvelope, :hemlockweight, :userid), ('oak', :oakenvelope, :oakweight, :userid), ('nontreelitter', :nontreelitterenvelope, :nontreelitterweight, :userid), ('pinecones', :pineconesenvelope, :pineconesweight, :userid), ('rmaple', :rmapleenvelope, :rmapleweight, :userid), ('rpine', :rpineenvelope, :rpineweight, :userid), ('spruce', :spruceenvelope, :spruceweight, :userid), ('strmaple', :strmapleenvelope, :strmapleweight, :userid), ('whazel', :whazelenvelope, :whazelweight, :userid), ('wpine', :wpineenvelope, :wpineweight, :userid) ON CONFLICT ON CONSTRAINT type DO update SET envelope=excluded.envelope, weight=excluded.weight", **params)
+            return redirect("/A1")
+        elif request.form['action'] == 'Update':
+            params = {}
+            for type in TYPES:
+                try:
+                    params[type+"envelope"] = float(request.form.get(type+"envelope"))
+                except:
+                    params[type+"envelope"]=0
+                try:
+                    params[type+"weight"] = float(request.form.get(type+"weight"))
+                except:
+                    params[type+"weight"]=0
+                results = db.execute("SELECT envelope, weight FROM a1 WHERE type=:type", type = type)
+                print(results[0])
+                if results[0]["envelope"] == 0:
+                    db.execute("UPDATE a1 SET envelope = :enveloperesults WHERE type=:type", enveloperesults=params[type+"envelope"], type=type)
+                if results[0]["weight"] == 0:
+                    db.execute("UPDATE a1 SET weight=:weightresults WHERE type=:type", weightresults=params[type+"weight"], type=type)
+            return redirect("/A1")
     else:
-        return render_template("register.html")
+        return render_template("A1.html")
 
-
-@app.route("/sell", methods=["GET", "POST"])
+@app.route("/A2", methods=["GET", "POST"])
 @login_required
-def sell():
-    """sell shares of stock"""
-    now = datetime.now()
-    # get stock information to pass into html so sell page can have a dropdown menu for all stocks owned
-    stocks = db.execute("SELECT * from history WHERE id = :id", id=session["user_id"])
-    if request.method == "GET":
-        return render_template("sell.html", stocks=stocks)
-    # check for valid inputs
-    if not request.form.get("symbol"):
-        return apology("must provide symbol of share desired", 400)
+def A2():
 
-    stock = lookup(request.form.get("symbol"))
-    shares = int(request.form.get("shares"))
-    # ensure user has enough shares to sell
-    currentshares = db.execute("SELECT shares FROM history WHERE id = :id AND symbol = :symbol",
-                               id=session["user_id"], symbol=stock["symbol"])
+    if request.method == "POST":
+        if request.form['action'] == 'Submit':
+            params = {}
+            for type in TYPES:
+                try:
+                    params[type+"envelope"] = float(request.form.get(type+"envelope"))
+                except:
+                    params[type+"envelope"]=0
+                try:
+                    params[type+"weight"] = float(request.form.get(type+"weight"))
+                except:
+                    params[type+"weight"]=0
 
-    if int(currentshares[0]["shares"]) < shares:
-        return apology("must provide number of shares", 400)
+            params["userid"] = session["user_id"]
 
-    # if sell is valid, update databases
+            db.execute("INSERT INTO a2 (type, envelope,weight, userid) VALUES ('acorn', :acornenvelope, :acornweight, :userid), ('fruits', :fruitsenvelope, :fruitsweight, :userid), ('twigs', :twigsenvelope, :twigsweight, :userid), ('unknown', :unknownenvelope, :unknownweight, :userid), ('ash', :ashenvelope, :ashweight, :userid), ('beech', :beechenvelope, :beechweight, :userid), ('birch', :birchenvelope, :birchweight, :userid), ('cherry', :cherryenvelope, :cherryweight, :userid), ('chestnut', :chestnutenvelope, :chestnutweight, :userid), ('hemlock', :hemlockenvelope, :hemlockweight, :userid), ('oak', :oakenvelope, :oakweight, :userid), ('nontreelitter', :nontreelitterenvelope, :nontreelitterweight, :userid), ('pinecones', :pineconesenvelope, :pineconesweight, :userid), ('rmaple', :rmapleenvelope, :rmapleweight, :userid), ('rpine', :rpineenvelope, :rpineweight, :userid), ('spruce', :spruceenvelope, :spruceweight, :userid), ('strmaple', :strmapleenvelope, :strmapleweight, :userid), ('whazel', :whazelenvelope, :whazelweight, :userid), ('wpine', :wpineenvelope, :wpineweight, :userid) ON CONFLICT ON CONSTRAINT type DO update SET envelope=excluded.envelope, weight=excluded.weight", **params)
+            return redirect("/A2")
+        elif request.form['action'] == 'Update':
+            params = {}
+            for type in TYPES:
+                try:
+                    params[type+"envelope"] = float(request.form.get(type+"envelope"))
+                except:
+                    params[type+"envelope"]=0
+                try:
+                    params[type+"weight"] = float(request.form.get(type+"weight"))
+                except:
+                    params[type+"weight"]=0
+                results = db.execute("SELECT envelope, weight FROM a2 WHERE type=:type", type = type)
+                print(results[0])
+                if results[0]["envelope"] == 0:
+                    db.execute("UPDATE a1 SET envelope = :enveloperesults WHERE type=:type", enveloperesults=params[type+"envelope"], type=type)
+                if results[0]["weight"] == 0:
+                    db.execute("UPDATE a1 SET weight=:weightresults WHERE type=:type", weightresults=params[type+"weight"], type=type)
+            return redirect("/A2")
     else:
-        if not currentshares:
-            db.execute("INSERT INTO history (id, symbol, shares, price, transacted, total) VALUES (:id, :symbol, :shares, :price, :transacted, :total)",
-                       id=session["user_id"], symbol=stock['symbol'], shares=shares, price=stock['price'], transacted=now.strftime("%Y %m %d %H:%M:%S"), total=usd(int(stock["price"]) * shares))
-        else:
-            totalshares = currentshares[0]["shares"] - shares
-            db.execute("UPDATE history SET shares = :shares WHERE id = :id AND symbol = :symbol",
-                       shares=totalshares, id=session["user_id"], symbol=stock["symbol"])
+        return render_template("A2.html")
 
-    db.execute("UPDATE users SET cash = cash + :earned where id = :id",
-               earned=stock["price"] * shares, id=session['user_id'])
-    if totalshares == 0:
-        db.execute("DELETE FROM history WHERE id = :id AND symbol = :symbol",
-                   id=session["user_id"], symbol=stock["symbol"])
+@app.route("/A3", methods=["GET", "POST"])
+@login_required
+def A3():
+
+    if request.method == "POST":
+        if request.form['action'] == 'Submit':
+            params = {}
+            for type in TYPES:
+                try:
+                    params[type+"envelope"] = float(request.form.get(type+"envelope"))
+                except:
+                    params[type+"envelope"]=0
+                try:
+                    params[type+"weight"] = float(request.form.get(type+"weight"))
+                except:
+                    params[type+"weight"]=0
+
+            params["userid"] = session["user_id"]
+
+            db.execute("INSERT INTO a3 (type, envelope,weight, userid) VALUES ('acorn', :acornenvelope, :acornweight, :userid), ('fruits', :fruitsenvelope, :fruitsweight, :userid), ('twigs', :twigsenvelope, :twigsweight, :userid), ('unknown', :unknownenvelope, :unknownweight, :userid), ('ash', :ashenvelope, :ashweight, :userid), ('beech', :beechenvelope, :beechweight, :userid), ('birch', :birchenvelope, :birchweight, :userid), ('cherry', :cherryenvelope, :cherryweight, :userid), ('chestnut', :chestnutenvelope, :chestnutweight, :userid), ('hemlock', :hemlockenvelope, :hemlockweight, :userid), ('oak', :oakenvelope, :oakweight, :userid), ('nontreelitter', :nontreelitterenvelope, :nontreelitterweight, :userid), ('pinecones', :pineconesenvelope, :pineconesweight, :userid), ('rmaple', :rmapleenvelope, :rmapleweight, :userid), ('rpine', :rpineenvelope, :rpineweight, :userid), ('spruce', :spruceenvelope, :spruceweight, :userid), ('strmaple', :strmapleenvelope, :strmapleweight, :userid), ('whazel', :whazelenvelope, :whazelweight, :userid), ('wpine', :wpineenvelope, :wpineweight, :userid) ON CONFLICT ON CONSTRAINT type DO update SET envelope=excluded.envelope, weight=excluded.weight", **params)
+            return redirect("/A3")
+        elif request.form['action'] == 'Update':
+            params = {}
+            for type in TYPES:
+                try:
+                    params[type+"envelope"] = float(request.form.get(type+"envelope"))
+                except:
+                    params[type+"envelope"]=0
+                try:
+                    params[type+"weight"] = float(request.form.get(type+"weight"))
+                except:
+                    params[type+"weight"]=0
+                results = db.execute("SELECT envelope, weight FROM a3 WHERE type=:type", type = type)
+                print(results[0])
+                if results[0]["envelope"] == 0:
+                    db.execute("UPDATE a3 SET envelope = :enveloperesults WHERE type=:type", enveloperesults=params[type+"envelope"], type=type)
+                if results[0]["weight"] == 0:
+                    db.execute("UPDATE a3 SET weight=:weightresults WHERE type=:type", weightresults=params[type+"weight"], type=type)
+            return redirect("/A3")
     else:
-        db.execute("UPDATE history SET shares=:shares WHERE id = :id AND symbol = :symbol",
-                   shares=totalshares, id=session["user_id"], symbol=stock["symbol"])
+        return render_template("A3.html")
 
-    return redirect("/")
+@app.route("/A4", methods=["GET", "POST"])
+@login_required
+def A4():
+
+
+    if request.method == "POST":
+        if request.form['action'] == 'Submit':
+            params = {}
+            for type in TYPES:
+                try:
+                    params[type+"envelope"] = float(request.form.get(type+"envelope"))
+                except:
+                    params[type+"envelope"]=0
+                try:
+                    params[type+"weight"] = float(request.form.get(type+"weight"))
+                except:
+                    params[type+"weight"]=0
+
+            params["userid"] = session["user_id"]
+
+            db.execute("INSERT INTO a4 (type, envelope,weight, userid) VALUES ('acorn', :acornenvelope, :acornweight, :userid), ('fruits', :fruitsenvelope, :fruitsweight, :userid), ('twigs', :twigsenvelope, :twigsweight, :userid), ('unknown', :unknownenvelope, :unknownweight, :userid), ('ash', :ashenvelope, :ashweight, :userid), ('beech', :beechenvelope, :beechweight, :userid), ('birch', :birchenvelope, :birchweight, :userid), ('cherry', :cherryenvelope, :cherryweight, :userid), ('chestnut', :chestnutenvelope, :chestnutweight, :userid), ('hemlock', :hemlockenvelope, :hemlockweight, :userid), ('oak', :oakenvelope, :oakweight, :userid), ('nontreelitter', :nontreelitterenvelope, :nontreelitterweight, :userid), ('pinecones', :pineconesenvelope, :pineconesweight, :userid), ('rmaple', :rmapleenvelope, :rmapleweight, :userid), ('rpine', :rpineenvelope, :rpineweight, :userid), ('spruce', :spruceenvelope, :spruceweight, :userid), ('strmaple', :strmapleenvelope, :strmapleweight, :userid), ('whazel', :whazelenvelope, :whazelweight, :userid), ('wpine', :wpineenvelope, :wpineweight, :userid) ON CONFLICT ON CONSTRAINT type DO update SET envelope=excluded.envelope, weight=excluded.weight", **params)
+            return redirect("/A4")
+        elif request.form['action'] == 'Update':
+            params = {}
+            for type in TYPES:
+                try:
+                    params[type+"envelope"] = float(request.form.get(type+"envelope"))
+                except:
+                    params[type+"envelope"]=0
+                try:
+                    params[type+"weight"] = float(request.form.get(type+"weight"))
+                except:
+                    params[type+"weight"]=0
+                results = db.execute("SELECT envelope, weight FROM a4 WHERE type=:type", type = type)
+                print(results[0])
+                if results[0]["envelope"] == 0:
+                    db.execute("UPDATE a4 SET envelope = :enveloperesults WHERE type=:type", enveloperesults=params[type+"envelope"], type=type)
+                if results[0]["weight"] == 0:
+                    db.execute("UPDATE a4 SET weight=:weightresults WHERE type=:type", weightresults=params[type+"weight"], type=type)
+            return redirect("/A4")
+    else:
+        return render_template("A4.html")
+
+@app.route("/record", methods=["GET", "POST"])
+@login_required
+def timesheet():
+    return render_template("display.html")
 
 
 def errorhandler(e):
