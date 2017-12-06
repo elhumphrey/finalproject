@@ -22,7 +22,7 @@ if app.config["DEBUG"]:
 
 TYPES = ["acorn", "fruits", "twigs", "unknown", "ash", "beech", "birch", "cherry", "chestnut", "hemlock", "oak", "nontreelitter", "pinecones", "rmaple", "rpine", "spruce", "strmaple", "whazel", "wpine"]
 # Custom filter
-app.jinja_env.filters["usd"] = usd
+
 
 # Configure session to use filesystem (instead of signed cookies)
 app.config["SESSION_FILE_DIR"] = mkdtemp()
