@@ -74,7 +74,7 @@ def checkout():
 
 
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/", methods=["GET", "POST"])
 def login():
     """Log user in"""
 
@@ -122,7 +122,7 @@ def logout():
     session.clear()
 
     # Redirect user to login form
-    return redirect("/login")
+    return redirect("/")
 
 
 @app.route("/A1", methods=["GET", "POST"])
